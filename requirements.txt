@@ -1,0 +1,7 @@
+# PDF Processing
+pdfplumber
+
+# Arabic Text Handling
+arabic-reshaper
+python-bidi
+
