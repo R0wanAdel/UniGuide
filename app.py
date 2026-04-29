@@ -1,6 +1,10 @@
 import pdfplumber
+import pytesseract
 import arabic_reshaper
 from bidi.algorithm import get_display
+
+
+pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
 def fix_arabic_text(text):
     """
@@ -21,44 +25,31 @@ def extract_bylaws_locally(pdf_path):
         for page_number, page in enumerate(pdf.pages, start=1):
             page_content = [f"--- Page {page_number} ---"]
             
-            # --- 1. HANDLE TABLES ---
-            # Extract tables first and format them as Markdown for the LLM
-            tables = page.extract_tables()
-            for table in tables:
-                md_table = []
-                for row_idx, row in enumerate(table):
-                    # Clean and fix Arabic in each cell
-                    cleaned_row = [fix_arabic_text(cell).replace('\n', ' ') if cell else "" for cell in row]
-                    row_string = "| " + " | ".join(cleaned_row) + " |"
-                    md_table.append(row_string)
-                    
-                    # Add Markdown header separator after the first row
-                    if row_idx == 0:
-                        separator = "| " + " | ".join(["---"] * len(cleaned_row)) + " |"
-                        md_table.append(separator)
-                
-                page_content.append("\n".join(md_table) + "\n")
+            # Try native text extraction first to save time
+            native_text = page.extract_text()
             
-            # --- 2. HANDLE STANDARD TEXT ---
-            # Extract text (Note: pdfplumber extracts table text here too, 
-            # but having the structured Markdown table above helps the LLM)
-            raw_text = page.extract_text()
-            if raw_text:
-                fixed_lines = []
-                for line in raw_text.split('\n'):
-                    fixed_lines.append(fix_arabic_text(line))
-                
-                page_content.append("\n".join(fixed_lines))
+            # Only run OCR if native extraction fails or returns very little text
+            if not native_text or len(native_text.strip()) < 10:
+                page_image = page.to_image(resolution=300).original
+                raw_text = pytesseract.image_to_string(page_image, lang='ara')
+                if raw_text:
+                    fixed_lines = [fix_arabic_text(line) for line in raw_text.split('\n') if line.strip()]
+                    page_content.append("\n".join(fixed_lines))
+            else:
+                # Use native text (still needs reshaping for Arabic)
+                page_content.append(fix_arabic_text(native_text))
+
+            # ... (table handling logic can stay here)
             
-            # Combine page elements
             extracted_document.append("\n".join(page_content))
             
     return "\n\n".join(extracted_document)
 
+
 if __name__ == "__main__":
     pdf_file = "كلية-الحاسبات-والمعلومات.pdf"
     
-    print("Extracting and fixing Arabic text locally...")
+    print("Extracting and fixing Arabic text locally using OCR...")
     final_text = extract_bylaws_locally(pdf_file)
     
     with open("extracted_bylaws.txt", "w", encoding="utf-8") as f:
