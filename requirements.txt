@@ -1,7 +1,7 @@
-# PDF Processing
-pdfplumber
-
-# Arabic Text Handling
-arabic-reshaper
-python-bidi
-
+easyocr
+pyarabic
+pymupdf
+rank-bm25
+nltk
+torch
+sentence-transformers
