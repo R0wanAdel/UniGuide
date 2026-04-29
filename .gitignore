@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+extracted_bylaws.txt
+env/
+.venv/
+.DS_Store
