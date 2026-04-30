@@ -44,4 +44,4 @@ This project extracts and structures Arabic university bylaw text, then supports
 
 -Combines Semantic Retrieval with LLM Generation (Augmented Generation).
 
--Utilizes google-generativeai to formulate answers strictly from retrieved context, ensuring zero hallucination.
+-Utilizes OpenRouter API to formulate answers strictly from retrieved context, ensuring zero hallucination.

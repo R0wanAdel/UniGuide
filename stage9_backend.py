@@ -4,7 +4,9 @@ import uvicorn
 import requests
 import stage7_semantic_search as engine
 
-GEMINI_API_KEY = "AIzaSyBedAMC-7lfXvDGor4hzQv9zIHaWcMDeG8"
+OPENROUTER_API_KEY = (
+    "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"
+)
 
 
 app = FastAPI(title="UniGuide Smart API")
@@ -36,46 +38,30 @@ async def load_engine():
     print("✅ System Ready!")
 
 
-def get_best_model_name():
-    """دالة لجلب أول موديل توليدي متاح ومسموح للمفتاح ده"""
-    url = (
-        f"https://generativelanguage.googleapis.com/v1beta/models?key={GEMINI_API_KEY}"
-    )
-    try:
-        response = requests.get(url)
-        if response.status_code == 200:
-            models = response.json().get("models", [])
-            for m in models:
-                if "generateContent" in m.get(
-                    "supportedGenerationMethods", []
-                ) and "gemini" in m.get("name", ""):
-                    return m["name"]
-    except Exception as e:
-        pass
-
-    return "models/gemini-1.0-pro"
-
-
-ACTIVE_MODEL = get_best_model_name()
-print(f"🤖 Active Google Model: {ACTIVE_MODEL}")
-
-
-def call_gemini_direct(prompt: str) -> str:
-    url = f"https://generativelanguage.googleapis.com/v1beta/{ACTIVE_MODEL}:generateContent?key={GEMINI_API_KEY}"
-    headers = {"Content-Type": "application/json"}
+def call_openrouter_llm(prompt: str) -> str:
+    url = "https://openrouter.ai/api/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+    }
     payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.1},
+        "model": "google/gemini-2.0-flash-001",
+        "messages": [
+            {
+                "role": "system",
+                "content": "أنت مساعد ذكي لطلاب كلية الحاسبات والمعلومات. أجب عن سؤال الطالب بناءً على نصوص اللائحة المقدمة لك فقط. إذا لم تكن الإجابة في النصوص، قل 'لا أعرف'.",
+            },
+            {"role": "user", "content": prompt},
+        ],
     }
 
     try:
         response = requests.post(url, headers=headers, json=payload)
         data = response.json()
-
         if response.status_code == 200:
-            return data["candidates"][0]["content"]["parts"][0]["text"]
+            return data["choices"][0]["message"]["content"]
         else:
-            return f"Google API Error: {data.get('error', {}).get('message', 'Unknown Error')}"
+            return f"OpenRouter Error: {data}"
     except Exception as e:
         return f"Connection Error: {str(e)}"
 
@@ -85,6 +71,7 @@ async def ask_question(request: QueryRequest):
     if not request.question.strip():
         raise HTTPException(status_code=400, detail="السؤال فارغ")
 
+    # 1. البحث عن النصوص
     search_results = engine.search(
         query=request.question,
         data=DATA,
@@ -110,20 +97,13 @@ async def ask_question(request: QueryRequest):
         )
         context_text += content + "\n\n"
 
-    prompt = f"""
-    أنت مساعد ذكي لطلاب كلية الحاسبات والمعلومات.
-    أجب عن سؤال الطالب بناءً على نصوص اللائحة التالية فقط.
-    إذا لم تكن الإجابة موجودة في النصوص، قل "عذراً، لا أملك معلومات حول هذا السؤال من اللائحة".
-    الرجاء صياغة الإجابة بلغة عربية سليمة وواضحة، وتصحيح أي أخطاء إملائية.
+    prompt = f"""النصوص المستخرجة:
+{context_text}
 
-    النصوص المستخرجة:
-    {context_text}
+سؤال الطالب: {request.question}
+الإجابة:"""
 
-    سؤال الطالب: {request.question}
-    الإجابة:
-    """
-
-    final_answer = call_gemini_direct(prompt)
+    final_answer = call_openrouter_llm(prompt)
 
     return QueryResponse(
         question=request.question,
