@@ -1,26 +1,10 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import uvicorn
-import google.generativeai as genai
+import requests
 import stage7_semantic_search as engine
 
-GEMINI_API_KEY = "AIzaSyAU3bJ4VdjmkssiGz_ZJ5w2C8P_ooFs4KU"
-genai.configure(api_key=GEMINI_API_KEY)
-
-
-best_model_name = ""
-try:
-    for m in genai.list_models():
-        if "generateContent" in m.supported_generation_methods:
-
-            if "gemini" in m.name:
-                best_model_name = m.name.replace("models/", "")
-                break
-except Exception as e:
-    best_model_name = "gemini-1.5-flash"
-
-print(f" AI Model Successfully Selected: {best_model_name}")
-llm_model = genai.GenerativeModel(best_model_name)
+GEMINI_API_KEY = "AIzaSyBedAMC-7lfXvDGor4hzQv9zIHaWcMDeG8"
 
 
 app = FastAPI(title="UniGuide Smart API")
@@ -50,6 +34,50 @@ async def load_engine():
     MODEL = engine.SentenceTransformer(engine.MODEL_NAME)
     EMBEDDINGS = engine.load_or_build_embeddings(MODEL, TEXTS, "semantic_index.npz")
     print("✅ System Ready!")
+
+
+def get_best_model_name():
+    """دالة لجلب أول موديل توليدي متاح ومسموح للمفتاح ده"""
+    url = (
+        f"https://generativelanguage.googleapis.com/v1beta/models?key={GEMINI_API_KEY}"
+    )
+    try:
+        response = requests.get(url)
+        if response.status_code == 200:
+            models = response.json().get("models", [])
+            for m in models:
+                if "generateContent" in m.get(
+                    "supportedGenerationMethods", []
+                ) and "gemini" in m.get("name", ""):
+                    return m["name"]
+    except Exception as e:
+        pass
+
+    return "models/gemini-1.0-pro"
+
+
+ACTIVE_MODEL = get_best_model_name()
+print(f"🤖 Active Google Model: {ACTIVE_MODEL}")
+
+
+def call_gemini_direct(prompt: str) -> str:
+    url = f"https://generativelanguage.googleapis.com/v1beta/{ACTIVE_MODEL}:generateContent?key={GEMINI_API_KEY}"
+    headers = {"Content-Type": "application/json"}
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": 0.1},
+    }
+
+    try:
+        response = requests.post(url, headers=headers, json=payload)
+        data = response.json()
+
+        if response.status_code == 200:
+            return data["candidates"][0]["content"]["parts"][0]["text"]
+        else:
+            return f"Google API Error: {data.get('error', {}).get('message', 'Unknown Error')}"
+    except Exception as e:
+        return f"Connection Error: {str(e)}"
 
 
 @app.post("/ask", response_model=QueryResponse)
@@ -95,11 +123,7 @@ async def ask_question(request: QueryRequest):
     الإجابة:
     """
 
-    try:
-        response = llm_model.generate_content(prompt)
-        final_answer = response.text
-    except Exception as e:
-        final_answer = f"حدث خطأ أثناء توليد الإجابة: {str(e)}"
+    final_answer = call_gemini_direct(prompt)
 
     return QueryResponse(
         question=request.question,
