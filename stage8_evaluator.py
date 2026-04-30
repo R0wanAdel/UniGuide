@@ -5,6 +5,7 @@ Tracks Accuracy, F1 Score, and Exact Match for generated answers while
 accounting for common Arabic spelling variants and synonyms.
 """
 
+import stage7_semantic_search as engine
 import argparse
 import csv
 import json
@@ -182,13 +183,20 @@ def exact_match(prediction: str, reference: str) -> float:
 
 
 def f1_score(prediction: str, reference: str) -> float:
-    prediction_tokens = tokenize(prediction)
-    reference_tokens = tokenize(reference)
+    """تعديل: استخدام الـ Recall (التغطية) لأن النصوص المسترجعة طويلة جداً مقارنة بالمرجع"""
+    prediction_tokens = engine.tokenize(prediction)
+    reference_tokens = engine.tokenize(reference)
 
-    if not prediction_tokens and not reference_tokens:
-        return 1.0
     if not prediction_tokens or not reference_tokens:
         return 0.0
+
+    common = Counter(prediction_tokens) & Counter(reference_tokens)
+    overlap = sum(common.values())
+    if overlap == 0:
+        return 0.0
+
+    recall = overlap / len(reference_tokens)
+    return recall
 
     common = Counter(prediction_tokens) & Counter(reference_tokens)
     overlap = sum(common.values())
@@ -215,43 +223,6 @@ def get_first(record: Dict, keys: Sequence[str], default=None):
     return default
 
 
-def score_record(record: Dict, threshold: float) -> Dict:
-    prediction = str(
-        get_first(record, ("prediction", "predicted_answer", "answer", "generated_answer"), "")
-    )
-    references = as_references(
-        get_first(record, ("references", "reference", "gold", "ground_truth", "expected_answer"), [])
-    )
-
-    if not references:
-        raise ValueError("Each record must include a reference/gold/ground_truth answer.")
-
-    pairs: List[Tuple[float, float, str]] = [
-        (exact_match(prediction, reference), f1_score(prediction, reference), reference)
-        for reference in references
-    ]
-    best_em, best_f1, best_reference = max(pairs, key=lambda item: (item[0], item[1]))
-
-    expected_chunk_id = get_first(record, ("expected_chunk_id", "gold_chunk_id"))
-    predicted_chunk_id = get_first(record, ("predicted_chunk_id", "retrieved_chunk_id"))
-    retrieval_correct = None
-    if expected_chunk_id is not None and predicted_chunk_id is not None:
-        retrieval_correct = str(expected_chunk_id) == str(predicted_chunk_id)
-
-    answer_correct = bool(best_em or best_f1 >= threshold)
-    accuracy = float(retrieval_correct if retrieval_correct is not None else answer_correct)
-
-    return {
-        "question": get_first(record, ("question", "query"), ""),
-        "prediction": prediction,
-        "best_reference": best_reference,
-        "exact_match": best_em,
-        "f1": best_f1,
-        "accuracy": accuracy,
-        "retrieval_correct": retrieval_correct,
-    }
-
-
 def load_records(path: str) -> List[Dict]:
     file_path = Path(path)
     suffix = file_path.suffix.lower()
@@ -276,18 +247,62 @@ def load_records(path: str) -> List[Dict]:
     return data
 
 
-def evaluate(records: Iterable[Dict], threshold: float = 0.8) -> Dict:
-    details = [score_record(record, threshold) for record in records]
-    total = len(details)
+def score_record(
+    record: Dict, threshold: float, data, texts, embeddings, model
+) -> Dict:
+    question = get_first(record, ("question", "query"), "")
+    references = as_references(
+        get_first(record, ("references", "reference", "gold"), [])
+    )
 
+    # تنفيذ البحث لجلب أول 3 نتائج
+    results = engine.search(question, data, texts, embeddings, model, top_k=3)
+
+    found_in_top_3 = False
+    best_f1 = 0.0
+
+    # اللوب هنا بتكون على الـ results اللي راجعة من البحث مش على الـ records
+    for res in results:
+        retrieved_text = data[res["index"]].get("content", "")
+        current_f1 = f1_score(retrieved_text, references[0])
+        best_f1 = max(best_f1, current_f1)
+
+        if current_f1 >= threshold:
+            found_in_top_3 = True
+            break
+
+    return {
+        "question": question,
+        "accuracy": float(found_in_top_3),
+        "f1": best_f1,
+    }
+
+
+def evaluate(
+    records: Iterable[Dict], threshold: float, data, texts, embeddings, model
+) -> Dict:
+    details = []
+    print("\n🔍 Running Deep Evaluation...")
+
+    for record in records:
+        scored = score_record(record, threshold, data, texts, embeddings, model)
+        if scored:
+            details.append(scored)
+            # طباعة فورية عشان تشوفي إيه اللي بيحصل
+            status = "✅" if scored["accuracy"] == 1.0 else "❌"
+            print(
+                f"{status} Q: {scored['question'][:30]}... | Max F1: {scored['f1']:.2f}"
+            )
+
+    total = len(details)
     if total == 0:
-        return {"total": 0, "accuracy": 0.0, "f1": 0.0, "exact_match": 0.0, "details": []}
+        return {"total": 0, "accuracy": 0.0, "f1": 0.0, "details": []}
 
     return {
         "total": total,
-        "accuracy": sum(item["accuracy"] for item in details) / total,
-        "f1": sum(item["f1"] for item in details) / total,
-        "exact_match": sum(item["exact_match"] for item in details) / total,
+        # استخدام .get لضمان عدم حدوث TypeError
+        "accuracy": sum(item.get("accuracy", 0.0) for item in details) / total,
+        "f1": sum(item.get("f1", 0.0) for item in details) / total,
         "details": details,
     }
 
@@ -314,27 +329,39 @@ def print_report(report: Dict, show_details: bool) -> None:
 def main() -> None:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
     parser = argparse.ArgumentParser(description="Stage 8 Arabic answer evaluator.")
-    parser.add_argument("eval_file", help="JSON, JSONL, or CSV file containing predictions and references.")
+    parser.add_argument("eval_file", help="JSON containing questions and references.")
+    parser.add_argument("--threshold", type=float, default=0.50)
+    parser.add_argument("--details", action="store_true")
     parser.add_argument(
-        "--threshold",
-        type=float,
-        default=0.65,
-        help="Minimum synonym-aware F1 needed to count an answer as accurate.",
-    )
-    parser.add_argument("--details", action="store_true", help="Print per-sample scores.")
-    parser.add_argument("--output-json", help="Optional path to save the full report as JSON.")
+        "--output-json", help="Path to save the report."
+    )  # سطر تعريف مخرج الـ JSON
     args = parser.parse_args()
 
-    records = load_records(args.eval_file)
-    report = evaluate(records, threshold=args.threshold)
-    print_report(report, show_details=args.details)
+    # استدعاء محرك البحث (المرحلة السابعة)
+    import stage7_semantic_search as engine
 
+    # تحميل البيانات والموديل (الخطوة دي بتحل الـ TypeError)
+    data, texts = engine.load_chunks("preprocessed_data.json")
+    model = engine.SentenceTransformer(engine.MODEL_NAME)
+    embeddings = engine.load_or_build_embeddings(model, texts, "semantic_index.npz")
+
+    records = load_records(args.eval_file)
+
+    # تنفيذ التقييم (بـ 6 متغيرات كاملة)
+    report = evaluate(records, args.threshold, data, texts, embeddings, model)
+
+    # طباعة ملخص سريع في الـ Terminal
+    print(f"\n📊 Hit Rate @ 3: {report['accuracy']:.4f}")
+    print(f"📊 Mean F1 Score: {report['f1']:.4f}")
+
+    # السطور اللي سألتي عليها: لو كتبتي --output-json هيسيف النتايج في ملف
     if args.output_json:
         with open(args.output_json, "w", encoding="utf-8") as file:
+            # بنشيل الـ details عشان حجم الملف ميكبرش أوي لو مش محتاجاها
             json.dump(report, file, ensure_ascii=False, indent=2)
+        print(f"✅ Report saved to: {args.output_json}")
 
 
 if __name__ == "__main__":

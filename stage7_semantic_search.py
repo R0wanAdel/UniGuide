@@ -15,16 +15,37 @@ from pathlib import Path
 import numpy as np
 from sentence_transformers import SentenceTransformer
 
-
 MODEL_NAME = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 
 DIACRITICS = re.compile(r"[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED]")
 TOKEN_RE = re.compile(r"[\u0600-\u06FF0-9]+")
 
 STOPWORDS = {
-    "في", "من", "عن", "على", "علي", "الى", "الي", "او", "و", "ف",
-    "ما", "ماذا", "هو", "هي", "هذا", "هذه", "ذلك", "كل", "اي",
-    "يمكن", "يكون", "تكون", "خلال", "بعد", "قبل"
+    "في",
+    "من",
+    "عن",
+    "على",
+    "علي",
+    "الى",
+    "الي",
+    "او",
+    "و",
+    "ف",
+    "ما",
+    "ماذا",
+    "هو",
+    "هي",
+    "هذا",
+    "هذه",
+    "ذلك",
+    "كل",
+    "اي",
+    "يمكن",
+    "يكون",
+    "تكون",
+    "خلال",
+    "بعد",
+    "قبل",
 }
 
 CANONICAL = {
@@ -32,39 +53,39 @@ CANONICAL = {
     "ساعات": "ساعه",
     "ساعة": "ساعه",
     "الساعه": "ساعه",
-
     "التسجيل": "تسجيل",
     "يسجل": "تسجيل",
     "مسجله": "تسجيل",
     "المسجله": "تسجيل",
-
     "الفصل": "فصل",
     "فصول": "فصل",
-
     "الدراسي": "دراسي",
     "الدراسيه": "دراسي",
     "دراسيه": "دراسي",
-
     "الحد": "حد",
     "الاقصي": "اقصي",
     "الاقصى": "اقصي",
     "اقصى": "اقصي",
-
     "الادني": "ادني",
     "الادنى": "ادني",
     "ادنى": "ادني",
-
     "المعتمده": "معتمد",
     "معتمده": "معتمد",
-
     "الطالب": "طالب",
     "طلاب": "طالب",
     "طلبه": "طالب",
     "طلبة": "طالب",
-
     "المقررات": "مقرر",
     "مقررات": "مقرر",
     "المقرر": "مقرر",
+    "الغياب": "غياب",
+    "انذار": "انذار",
+    "حرمان": "حرمان",
+    "التقدير": "تقدير",
+    "المعدل": "gpa",
+    "التراكمي": "gpa",
+    "الاقسام": "قسم",
+    "تخصصات": "قسم",
 }
 
 
@@ -92,11 +113,24 @@ def light_stem(word):
         return CANONICAL[word]
 
     prefixes = ["وال", "بال", "كال", "فال", "لل", "ال", "و", "ف", "ب", "ك", "ل"]
-    suffixes = ["هما", "كما", "كم", "كن", "نا", "ها", "هم", "هن", "ات", "ون", "ين", "ان"]
+    suffixes = [
+        "هما",
+        "كما",
+        "كم",
+        "كن",
+        "نا",
+        "ها",
+        "هم",
+        "هن",
+        "ات",
+        "ون",
+        "ين",
+        "ان",
+    ]
 
     for prefix in prefixes:
         if word.startswith(prefix) and len(word) - len(prefix) >= 3:
-            word = word[len(prefix):]
+            word = word[len(prefix) :]
             break
 
     if word in CANONICAL:
@@ -104,10 +138,11 @@ def light_stem(word):
 
     for suffix in suffixes:
         if word.endswith(suffix) and len(word) - len(suffix) >= 3:
-            word = word[:-len(suffix)]
+            word = word[: -len(suffix)]
             break
 
     return CANONICAL.get(word, word)
+
 
 def tokenize(text):
     tokens = []
@@ -155,6 +190,7 @@ def load_or_build_embeddings(model, texts, index_path, rebuild=False):
     np.savez_compressed(index_file, embeddings=embeddings)
     return embeddings
 
+
 def is_registration_hours_question(query):
     q_text = normalize(query)
     q_tokens = set(tokenize(query))
@@ -178,6 +214,8 @@ def is_registration_hours_question(query):
     )
 
     return has_hours and has_context
+
+
 def keyword_score(query_tokens, document_tokens):
     if not query_tokens:
         return 0.0
@@ -188,50 +226,38 @@ def keyword_score(query_tokens, document_tokens):
 
 def phrase_boost(query, document, title):
     boost = 0.0
+    q_tokens = set(tokenize(query))
+    t_tokens = set(tokenize(title))
+    d_tokens = set(tokenize(document))
 
-    doc_tokens = set(tokenize(document))
+    boost += len(q_tokens & t_tokens) * 0.45
+
+    important_terms = {
+        "ساعه",
+        "تسجيل",
+        "فصل",
+        "دراسي",
+        "حد",
+        "اقصي",
+        "ادني",
+        "معتمد",
+        "غياب",
+        "حرمان",
+        "انذار",
+        "gpa",
+        "قسم",
+    }
+    boost += len(q_tokens & important_terms & d_tokens) * 0.15
+
     normalized_doc = normalize(document)
-    normalized_title = normalize(title)
+    if any(k in q_tokens for k in ["ساعه", "معتمد", "تسجيل"]):
+        if "12" in normalized_doc and "18" in normalized_doc:
+            boost += 0.50
+        if "تسجيل" in normalize(title):
+            boost += 0.40
 
-    important_terms = {"ساعه", "تسجيل", "فصل", "دراسي", "حد", "اقصي", "ادني", "معتمد"}
-    boost += len(doc_tokens & important_terms) * 0.03
+    return boost
 
-    if is_registration_hours_question(query):
-        # أقوى علامة إن دي مادة التسجيل
-        if "تسجيل" in normalized_title:
-            boost += 0.70
-
-        # وجود الحد الأدنى والحد الأقصى
-        if "الحد الادني" in normalized_doc or "حد ادني" in normalized_doc:
-            boost += 0.35
-
-        if "الحد الاقصي" in normalized_doc or "حد اقصي" in normalized_doc:
-            boost += 0.45
-
-        # وجود 12 و 18 ساعة معتمدة مع بعض هو أقوى دليل على الإجابة
-        has_12_hours = re.search(r"\b12\b\s+ساعه", normalized_doc)
-        has_18_hours = re.search(r"\b18\b\s+ساعه", normalized_doc)
-
-        if has_12_hours:
-            boost += 0.45
-
-        if has_18_hours:
-            boost += 0.55
-
-        if has_12_hours and has_18_hours:
-            boost += 0.70
-
-        # تقليل المواد العامة اللي بتتكلم عن توزيع الساعات أو الملاحظة الأكاديمية
-        if "توزيع المقررات" in normalized_title:
-            boost -= 0.40
-
-        if "الملاحظه الاكاديميه" in normalized_title:
-            boost -= 0.30
-
-        if "نظا التقييم" in normalized_title or "نظام التقييم" in normalized_title:
-            boost -= 0.25
-
-    return max(boost, 0.0)
 
 def search(query, data, texts, embeddings, model, top_k):
     query_text = normalize(query)
@@ -254,15 +280,17 @@ def search(query, data, texts, embeddings, model, top_k):
         lexical = keyword_score(query_tokens, document_tokens)
         boost = phrase_boost(query, text, data[i].get("title", ""))
 
-        final_score = (semantic * 0.60) + (lexical * 0.40) + boost
+        final_score = (semantic * 0.80) + (lexical * 0.20) + boost
 
-        final_scores.append({
-            "index": i,
-            "final_score": final_score,
-            "semantic_score": semantic,
-            "keyword_score": lexical,
-            "phrase_boost": boost,
-        })
+        final_scores.append(
+            {
+                "index": i,
+                "final_score": final_score,
+                "semantic_score": semantic,
+                "keyword_score": lexical,
+                "phrase_boost": boost,
+            }
+        )
 
     final_scores.sort(key=lambda item: item["final_score"], reverse=True)
     return final_scores[:top_k]

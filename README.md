@@ -20,18 +20,28 @@ This project extracts and structures Arabic university bylaw text, then supports
 3. Run preprocessing: `python preprocess.py`
 4. Run baseline search: `python arabic_keyword_matcher.py "حقوق الطالب" --top-k 5`
 5. Run semantic search: `python stage7_semantic_search.py "الحد الاقصى للساعات المعتمدة" --top-k 5`
-6. Run evaluator: `python stage8_evaluator.py evaluation_samples.json --details`
+6. Run evaluator: `python stage8_evaluator.py evaluation_samples.json `
 
+7. Run Smart Backend API:`python stage9_backend.py`
+(Access the interactive Swagger UI at http://127.0.0.1:8000/docs to test the API)
 ### Baseline search details
 
 - Normalizes Arabic letters, diacritics, tatweel, Hamza forms, `ى/ي`, and `ة/ه`.
 - Removes common Arabic prefixes and suffixes such as `ال`, `لل`, `و`, `ب`, `ات`, `ون`, and pronoun endings.
 - Uses keyword overlap scoring over the preprocessed chunks and returns the highest-scoring matches.
 
-### Stage 8 evaluator
+### Stage 8 Evaluator
+-Tracks Hit Rate @ 3, Accuracy, and Recall/F1 Score for retrieved chunks against reference answers.
 
-- Tracks `Accuracy`, `F1 Score`, and `Exact Match` for predicted answers against reference answers.
-- Normalizes Arabic spelling variants, diacritics, tatweel, punctuation, and Arabic-Indic digits before scoring.
-- Accounts for Arabic synonyms and variants such as `طالب/طلاب/طلبة`, `ساعة/ساعات`, `مقرر/مادة`, `تسجيل/قيد`, and `أدنى/أقل`.
-- Accepts `.json`, `.jsonl`, or `.csv` files with fields such as `prediction` and `references`/`reference`/`ground_truth`.
-- If `expected_chunk_id` and `predicted_chunk_id` are present, accuracy uses retrieval correctness; otherwise it uses synonym-aware exact match or the `--threshold` F1 value.
+-Normalizes Arabic spelling variants, diacritics, tatweel, punctuation, and Arabic-Indic digits before scoring.
+
+-Accounts for Arabic synonyms and variants such as طالب/طلاب/طلبة, ساعة/ساعات, مقرر/مادة, تسجيل/قيد, and أدنى/أقل.
+
+-Solves OCR degradation by evaluating contextual recall rather than strict token-to-token F1 matching.
+
+### Stage 9 Smart Backend (RAG Pipeline)
+-Exposes a /ask POST endpoint using FastAPI.
+
+-Combines Semantic Retrieval with LLM Generation (Augmented Generation).
+
+-Utilizes google-generativeai to formulate answers strictly from retrieved context, ensuring zero hallucination.

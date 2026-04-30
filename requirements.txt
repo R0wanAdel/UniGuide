@@ -7,3 +7,7 @@ torch
 sentence-transformers
 torch
 numpy
+fastapi
+uvicorn
+pydantic
+google-generativeai
