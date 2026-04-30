@@ -5,3 +5,5 @@ rank-bm25
 nltk
 torch
 sentence-transformers
+torch
+numpy
