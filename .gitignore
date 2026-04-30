@@ -4,3 +4,4 @@ extracted_bylaws.txt
 env/
 .venv/
 .DS_Store
+embeddings.pt
