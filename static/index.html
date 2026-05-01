@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>نظام أسئلة اللوائح</title>
+
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+
+<body>
+    <div class="site-header">
+        <div class="logo-box">
+            <img src="/static/images/Qena University logo.jpg" alt="شعار الجامعة">
+            <h3>جامعة قنا</h3>
+        </div>
+
+        <div class="site-title">
+            <h1>دليل اللوائح الذكي</h1>
+            <p>مشروع Question Answering System باستخدام تقنيات الذكاء الاصطناعي</p>
+        </div>
+
+        <div class="logo-box">
+            <img src="/static/images/Faculty of Computer and Information.jpg" alt="شعار الكلية">
+            <h3>كلية الحاسبات والمعلومات</h3>
+        </div>
+    </div>
+
+    <div class="container">
+        <aside class="sidebar">
+            <h2>الأسئلة الأكثر</h2>
+            <div class="faq-list">
+                <button class="faq-btn" data-q="كيفية حساب الساعات المعتمدة؟">كيفية حساب الساعات المعتمدة؟</button>
+                <button class="faq-btn" data-q="متطلبات التخرج">متطلبات التخرج</button>
+                <button class="faq-btn" data-q="نظام التقويم الأكاديمي">نظام التقويم الأكاديمي</button>
+                <button class="faq-btn" data-q="قواعد الغياب والحضور">قواعد الغياب والحضور</button>
+                <button class="faq-btn" data-q="نظام الامتحانات">نظام الامتحانات</button>
+            </div>
+        </aside>
+
+        <main class="main-content">
+            <div class="search-box">
+                <input id="question" type="text" placeholder="ابحث في لوائح الكلية..." />
+                <button id="askBtn">بحث</button>
+            </div>
+
+            <div id="answer-box"></div>
+            <div id="sources-box"></div>
+        </main>
+    </div>
+
+    <script src="/static/script.js"></script>
+</body>
+</html>

@@ -1,15 +1,28 @@
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+
 import uvicorn
 import requests
 import stage7_semantic_search as engine
 
 OPENROUTER_API_KEY = (
-    "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"
+    "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"
 )
 
 
 app = FastAPI(title="UniGuide Smart API")
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 DATA = None
 TEXTS = None
@@ -26,6 +39,11 @@ class QueryResponse(BaseModel):
     question: str
     final_answer: str
     chunks_used: list
+
+@app.get("/")
+async def read_index():
+    # ده بيرجع ملف الـ HTML بتاعك لليوزر
+    return FileResponse('static/index.html')
 
 
 @app.on_event("startup")
@@ -113,4 +131,4 @@ async def ask_question(request: QueryRequest):
 
 
 if __name__ == "__main__":
-    uvicorn.run("stage9_backend:app", host="127.0.0.1", port=8000, reload=True)
+    uvicorn.run("stage9_backend:app", host="127.0.0.1", port=8080, reload=True)
